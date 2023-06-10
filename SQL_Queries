@@ -1,0 +1,144 @@
+---------------A. Customer Nodes Exploration---------------------
+
+
+1.How many unique nodes are there on the Data Bank system --
+
+select count(distinct node_id) as No_Of_Nodes_Available
+from customer_nodes;
+
+
+2.What is the number of nodes per region? --
+
+select region_name,count(distinct node_id) as NoOfNodesPerRegion
+from customer_nodes as c
+join regions as r on c.region_id=r.region_id
+group by region_name ;
+
+
+
+3.How many customers are allocated to each region?
+
+select region_name,count(distinct customer_id) as RegionWiseCustomerAllocation
+from customer_nodes c join regions r on c.region_id=r.region_id
+group by region_name ;
+
+
+
+4.How many days on average are customers reallocated to a different node?
+
+
+select Round(avg(Date_diff),2) as Average_days from 
+(SELECT *,Round(datediff(end_date,start_date),2) as Date_diff 
+FROM data_bank.customer_nodes) A
+
+
+
+-------------------Customer Transactions--------------------
+
+
+
+1.What is the unique count and total amount for each transaction type?
+
+SELECT txn_type,sum(txn_amount) as Total_Amount,
+count(DISTINCT customer_id) as Transactions
+FROM data_bank.customer_transactions group by txn_type;
+
+
+
+2.What is the average total historical deposit counts and amounts for all customers?
+
+
+SELECT customer_id ,Round(avg(txn_amount),2) as Avg_Deposits
+,count(*) as Total_Counts_Deposits from 
+(SELECT * FROM data_bank.customer_transactions where txn_type= "deposit" ) A
+group by customer_id ;
+
+
+
+
+3.For each month - how many Data Bank customers make more than 1 deposit and either 1 purchase 
+  or 1 withdrawal in a single month?
+
+
+SELECT MONTH (txn_date) AS month,
+       COUNT(DISTINCT customer_id) AS num_customers
+FROM Customer_Transactions
+WHERE txn_type = 'deposit' OR txn_type = 'purchase' OR txn_type = 'withdrawal'
+GROUP BY month
+HAVING COUNT(DISTINCT CASE WHEN txn_type = 'deposit' THEN customer_id END) > 1
+   AND (COUNT(DISTINCT CASE WHEN txn_type = 'purchase' 
+   OR txn_type = 'withdrawal' THEN customer_id END) > 0)
+
+
+
+
+4.What is the closing balance for each customer at the end of the month?
+
+
+With CB as
+(SELECT *,
+case when txn_type ='deposit' then txn_amount*1 else txn_amount*(-1) end 
+as Transactions FROM data_bank.customer_transactions)
+
+select Monthname(txn_date) as Month_no,customer_id,sum(Transactions) 
+as Closing_Balance from CB group by customer_id,Month_No 
+order by Month_NO,customer_id ;
+
+
+
+
+5.What is the percentage of customers who increase their closing balance by more than 5%?
+
+
+with abc as (
+select customer_id ,datepart(month,txn_date) as months,
+sum(case when txn_type='deposit' then txn_amount 
+else -txn_amount 
+end) as balance
+from customer_transactions
+group by customer_id,datepart(month,txn_date)
+order by 1
+),
+close_bal as (
+select *, sum(balance) over(partition by customer_id order by months asc rows between unbounded preceding and current row)
+as Closing_balance
+from abc
+group by customer_id, months, balance
+
+),
+prev_bal as (
+select *, lag(Closing_balance)over(partition by customer_id order by months) as prev_bal
+from close_bal
+
+),
+bal_diff as(
+select *,
+case when Closing_balance>0 and prev_bal>0 then Closing_balance-prev_bal
+when Closing_balance<0 and prev_bal<0 then Closing_balance-prev_bal
+when Closing_balance<0 and prev_bal>0 then -(-Closing_balance+prev_bal)
+when Closing_balance>0 and prev_bal<0 then (Closing_balance-prev_bal)
+end as bal_diff
+from prev_bal
+where Closing_balance > prev_bal 
+order by customer_id
+),
+bal as(
+select *,cast (bal_diff*100 /(prev_bal as float)) as bal_prcnt
+from bal_diff
+)
+select round(cast(count(distinct customer_id)*100/(select count(distinct customer_id) from customer_transactions) as float),2)
+as prcnt_customer
+from bal 
+where  bal_prcnt>5 or bal_prcnt<-5
+
+
+
+
+
+
+
+
+
+
+
+
